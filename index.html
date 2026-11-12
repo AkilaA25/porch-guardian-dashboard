@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Porch Guardian</title>
+  <style>
+    :root {
+      --bg: #f5f6f8; --card: #fff; --text: #111418; --muted: #6b7280; --line: #e7e9ee;
+      --green: #16a34a; --green-soft: #dcfce7; --blue: #2563eb; --blue-soft: #dbeafe; --gray-soft: #f1f2f4;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1115; --card: #181b21; --text: #f3f4f6; --muted: #9ca3af; --line: #262a32;
+        --green: #4ade80; --green-soft: #12301f; --blue: #93b4ff; --blue-soft: #1a2540; --gray-soft: #22262d;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    }
+    main { max-width: 640px; margin: 0 auto; padding: 20px 16px 40px; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+    .live { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    .dot.off { background: #ef4444; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; margin-bottom: 14px; }
+    .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 0 0 4px; }
+
+    .hero h2 { font-size: 26px; margin: 0 0 2px; letter-spacing: -.02em; }
+    .hero p { margin: 0; color: var(--muted); }
+    .hero.package { background: var(--green-soft); border-color: transparent; }
+    .hero.package h2 { color: var(--green); }
+    .hero img { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 12px; margin-top: 14px; background: var(--gray-soft); cursor: zoom-in; }
+
+    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 6px; }
+    .controls button {
+      border: 0; border-radius: 14px; padding: 16px; font-family: inherit; font-size: 16px; font-weight: 600;
+      background: var(--text); color: var(--card); cursor: pointer; transition: transform .1s, opacity .2s;
+    }
+    .controls button:active { transform: scale(.97); }
+    .controls button:disabled { opacity: .5; }
+    #sent { font-size: 13px; color: var(--muted); min-height: 20px; margin: 0 0 14px; text-align: center; }
+
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+    .stats .card { margin: 0; padding: 14px; }
+    .stats b { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+    ul { list-style: none; margin: 0; padding: 0; }
+    li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+    li:first-child { border-top: 0; }
+    .tag { flex: none; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; width: 92px; text-align: center; }
+    .package_seen .tag { background: var(--green-soft); color: var(--green); }
+    .no_package .tag { background: var(--gray-soft); color: var(--muted); }
+    .motion_start .tag { background: var(--blue-soft); color: var(--blue); }
+    .when { flex: 1; }
+    .conf { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+    li img { width: 64px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; cursor: zoom-in; }
+
+    dialog { border: 0; padding: 0; background: none; max-width: 96vw; }
+    dialog::backdrop { background: rgba(0,0,0,.85); }
+    dialog img { display: block; max-width: 96vw; max-height: 90vh; border-radius: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Porch Guardian</h1>
+      <span class="live"><span id="dot" class="dot"></span><span id="updated">Connecting…</span></span>
+    </header>
+
+    <section id="hero" class="card hero">
+      <p class="label">Right now</p>
+      <h2 id="status">Loading…</h2>
+      <p id="detail"></p>
+      <img id="photo" alt="Latest porch photo" hidden>
+    </section>
+
+    <div class="controls">
+      <button onclick="send('alarm_off', this)">Alarm off</button>
+      <button onclick="send('light_off', this)">Light off</button>
+    </div>
+    <p id="sent"></p>
+
+    <div class="stats">
+      <div class="card"><p class="label">Packages today</p><b id="packages">0</b></div>
+      <div class="card"><p class="label">Motion today</p><b id="motion">0</b></div>
+      <div class="card"><p class="label">Avg. sure</p><b id="avg">–</b></div>
+    </div>
+
+    <section class="card">
+      <p class="label">Recent events</p>
+      <ul id="events"></ul>
+    </section>
+  </main>
+
+  <dialog id="viewer" onclick="this.close()"><img id="big"></dialog>
+
+  <script>
+    //paste the porch_dashboard_api Function URL here
+    const API_URL = "PASTE-FUNCTION-URL-HERE";
+
+    const NAMES = { package_seen: "Package", no_package: "No package", motion_start: "Motion" };
+
+    //dynamodb times are utc "2026-11-06 12:00:08"
+    const toDate = (t) => new Date(t.replace(" ", "T") + "Z");
+    const clock = (d) => d.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+    const pct = (c) => Math.round(c * 100) + "%";
+    const $ = (id) => document.getElementById(id);
+
+    async function load() {
+      try {
+        const events = (await (await fetch(API_URL)).json()).events;
+        $("dot").className = "dot";
+        $("updated").textContent = "Live";
+        show(events);
+      } catch {
+        $("dot").className = "dot off";
+        $("updated").textContent = "Offline";
+      }
+    }
+
+    function show(events) {
+      const latest = events[0];
+      if (!latest) { $("status").textContent = "No events yet"; return; }
+
+      //big status card
+      const when = clock(toDate(latest.time));
+      $("hero").classList.toggle("package", latest.type === "package_seen");
+      if (latest.type === "package_seen") {
+        $("status").textContent = "Package on the porch";
+        $("detail").textContent = when + " · " + pct(latest.conf) + " sure";
+      } else if (latest.type === "no_package") {
+        $("status").textContent = "Porch is clear";
+        $("detail").textContent = "Checked " + when;
+      } else {
+        $("status").textContent = "Someone's at the door";
+        $("detail").textContent = "Motion " + when;
+      }
+
+      //newest photo, only swapped when it's a new one so it doesn't flicker
+      const withPhoto = events.find((e) => e.photo);
+      if (withPhoto && $("photo").dataset.key !== withPhoto.image_key) {
+        $("photo").src = withPhoto.photo;
+        $("photo").dataset.key = withPhoto.image_key;
+        $("photo").hidden = false;
+      }
+
+      //today's numbers
+      const today = events.filter((e) => toDate(e.time).toDateString() === new Date().toDateString());
+      const packages = events.filter((e) => e.type === "package_seen");
+      $("packages").textContent = today.filter((e) => e.type === "package_seen").length;
+      $("motion").textContent = today.filter((e) => e.type === "motion_start").length;
+      $("avg").textContent = packages.length ? pct(packages.reduce((s, e) => s + e.conf, 0) / packages.length) : "–";
+
+      //event list
+      $("events").innerHTML = events.map((e) => `
+        <li class="${e.type}">
+          <span class="tag">${NAMES[e.type] || e.type}</span>
+          <span class="when">${clock(toDate(e.time))}</span>
+          ${e.type === "package_seen" ? `<span class="conf">${pct(e.conf)}</span>` : ""}
+          ${e.photo ? `<img src="${e.photo}" loading="lazy" alt="">` : ""}
+        </li>`).join("");
+    }
+
+    //tell the pi to turn the alarm or light off
+    async function send(cmd, button) {
+      button.disabled = true;
+      try {
+        await fetch(API_URL + "?cmd=" + cmd);
+        $("sent").textContent = button.textContent + " sent";
+      } catch {
+        $("sent").textContent = "Couldn't send, try again";
+      }
+      button.disabled = false;
+    }
+
+    //tap any photo to see it big
+    document.addEventListener("click", (e) => {
+      if (e.target.tagName === "IMG" && e.target.id !== "big") { $("big").src = e.target.src; $("viewer").showModal(); }
+    });
+
+    load();
+    setInterval(load, 5000);
+  </script>
+</body>
+</html>
