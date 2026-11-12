@@ -79,7 +79,7 @@
       <p class="label">Right now</p>
       <h2 id="status">Loading…</h2>
       <p id="detail"></p>
-      <img id="photo" alt="Latest porch photo" hidden>
+      <img id="photo" alt="Latest porch photo" hidden onerror="this.hidden = true">
     </section>
 
     <div class="controls">
@@ -165,7 +165,7 @@
           <span class="tag">${NAMES[e.type] || e.type}</span>
           <span class="when">${clock(toDate(e.time))}</span>
           ${e.type === "package_seen" ? `<span class="conf">${pct(e.conf)}</span>` : ""}
-          ${e.photo ? `<img src="${e.photo}" loading="lazy" alt="">` : ""}
+          ${e.photo ? `<img src="${e.photo}" loading="lazy" alt="" onerror="this.remove()">` : ""}
         </li>`).join("");
     }
 
