@@ -10,12 +10,12 @@
   <style>
     :root {
       --bg: #f5f6f8; --card: #fff; --text: #111418; --muted: #6b7280; --line: #e7e9ee;
-      --green: #16a34a; --green-soft: #dcfce7; --blue: #2563eb; --blue-soft: #dbeafe; --gray-soft: #f1f2f4;
+      --green: #16a34a; --green-soft: #dcfce7; --blue: #2563eb; --blue-soft: #dbeafe; --gray-soft: #f1f2f4; --red: #dc2626; --red-soft: #fee2e2;
     }
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #0f1115; --card: #181b21; --text: #f3f4f6; --muted: #9ca3af; --line: #262a32;
-        --green: #4ade80; --green-soft: #12301f; --blue: #93b4ff; --blue-soft: #1a2540; --gray-soft: #22262d;
+        --green: #4ade80; --green-soft: #12301f; --blue: #93b4ff; --blue-soft: #1a2540; --gray-soft: #22262d; --red: #f87171; --red-soft: #3a1717;
       }
     }
     * { box-sizing: border-box; }
@@ -55,10 +55,22 @@
     ul { list-style: none; margin: 0; padding: 0; }
     li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
     li:first-child { border-top: 0; }
-    .tag { flex: none; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; width: 92px; text-align: center; }
+    .tag { flex: none; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; width: 104px; text-align: center; }
     .package_seen .tag { background: var(--green-soft); color: var(--green); }
     .no_package .tag { background: var(--gray-soft); color: var(--muted); }
     .motion_start .tag { background: var(--blue-soft); color: var(--blue); }
+    .package_placed .tag { background: var(--green-soft); color: var(--green); }
+    .package_removed .tag, .mat_error .tag, .device_offline .tag { background: var(--red-soft); color: var(--red); }
+    .weight_change .tag, .device_online .tag { background: var(--gray-soft); color: var(--muted); }
+    .hero.alarm { background: var(--red-soft); border-color: transparent; }
+    .hero.alarm h2 { color: var(--red); }
+
+    .devices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+    .devices .card { margin: 0; padding: 14px; }
+    .devices b { display: block; margin-top: 4px; font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .devices small { display: block; color: var(--muted); font-size: 13px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+    .pill.bad { color: var(--red); }
     .when { flex: 1; }
     .conf { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
     li img { width: 64px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; cursor: zoom-in; }
@@ -81,6 +93,11 @@
       <p id="detail"></p>
       <img id="photo" alt="Latest porch photo" hidden onerror="this.hidden = true">
     </section>
+
+    <div class="devices">
+      <div class="card"><p class="label">Weight mat</p><span id="matPill" class="pill">–</span><b id="matGrams">–</b><small id="matDetail"></small></div>
+      <div class="card"><p class="label">Door camera</p><span id="piPill" class="pill">–</span><small id="piDetail"></small></div>
+    </div>
 
     <div class="controls">
       <button onclick="send('alarm_off', this)">Alarm off</button>
@@ -106,7 +123,13 @@
     //paste the porch_dashboard_api Function URL here
     const API_URL = "https://mrl4xf7yl7jksf2efjbzknydya0ryarv.lambda-url.us-east-2.on.aws/";
 
-    const NAMES = { package_seen: "Package", no_package: "No package", motion_start: "Motion" };
+    const NAMES = {
+      package_seen: "Package", no_package: "No package", motion_start: "Motion",
+      package_placed: "Mat: placed", package_removed: "Mat: taken", weight_change: "Mat: weight",
+      mat_error: "Mat error", device_online: "Online", device_offline: "Offline",
+    };
+    //the events that decide the big "Right now" card (online/offline and small weight changes don't)
+    const PORCH_TYPES = ["package_seen", "no_package", "motion_start", "package_placed", "package_removed"];
 
     //dynamodb times are utc "2026-11-06 12:00:08"
     const toDate = (t) => new Date(t.replace(" ", "T") + "Z");
@@ -116,10 +139,11 @@
 
     async function load() {
       try {
-        const events = (await (await fetch(API_URL)).json()).events;
+        const data = await (await fetch(API_URL)).json();
         $("dot").className = "dot";
         $("updated").textContent = "Live";
-        show(events);
+        show(data.events);
+        showDevices(data.mat, data.devices || []);
       } catch {
         $("dot").className = "dot off";
         $("updated").textContent = "Offline";
@@ -127,23 +151,40 @@
     }
 
     function show(events) {
-      const latest = events[0];
-      if (!latest) { $("status").textContent = "No events yet"; return; }
+      const latest = events.find((e) => PORCH_TYPES.includes(e.type));
+      if (!latest) { $("status").textContent = "No events yet"; }
+      else showLatest(latest);
 
-      //big status card
+      renderRest(events);
+    }
+
+    //big status card
+    function showLatest(latest) {
       const when = clock(toDate(latest.time));
-      $("hero").classList.toggle("package", latest.type === "package_seen");
-      if (latest.type === "package_seen") {
+      const t = latest.type;
+      $("hero").classList.toggle("package", t === "package_seen" || t === "package_placed");
+      $("hero").classList.toggle("alarm", t === "package_removed");
+      if (t === "package_seen") {
         $("status").textContent = "Package on the porch";
         $("detail").textContent = when + " · " + pct(latest.conf) + " sure";
-      } else if (latest.type === "no_package") {
+      } else if (t === "package_placed") {
+        $("status").textContent = "Package on the porch";
+        let d = when + (latest.grams !== undefined ? " · " + Math.round(latest.grams) + " g on the mat" : "");
+        if (latest.conf !== undefined) d += latest.camera_package ? " · camera " + pct(latest.conf) + " sure" : " · camera sees no package";
+        $("detail").textContent = d;
+      } else if (t === "package_removed") {
+        $("status").textContent = "Package taken off the mat";
+        $("detail").textContent = when + (latest.grams !== undefined ? " · " + Math.round(latest.grams) + " g left on the mat" : "");
+      } else if (t === "no_package") {
         $("status").textContent = "Porch is clear";
         $("detail").textContent = "Checked " + when;
       } else {
         $("status").textContent = "Someone's at the door";
         $("detail").textContent = "Motion " + when;
       }
+    }
 
+    function renderRest(events) {
       //newest photo, only swapped when it's a new one so it doesn't flicker
       const withPhoto = events.find((e) => e.photo);
       if (withPhoto && $("photo").dataset.key !== withPhoto.image_key) {
@@ -155,18 +196,43 @@
       //today's numbers
       const today = events.filter((e) => toDate(e.time).toDateString() === new Date().toDateString());
       const packages = events.filter((e) => e.type === "package_seen");
-      $("packages").textContent = today.filter((e) => e.type === "package_seen").length;
+      $("packages").textContent = today.filter((e) => e.type === "package_seen" || e.type === "package_placed").length;
       $("motion").textContent = today.filter((e) => e.type === "motion_start").length;
       $("avg").textContent = packages.length ? pct(packages.reduce((s, e) => s + e.conf, 0) / packages.length) : "–";
 
       //event list
       $("events").innerHTML = events.map((e) => `
         <li class="${e.type}">
-          <span class="tag">${NAMES[e.type] || e.type}</span>
+          <span class="tag">${e.source ? (e.source === "porch-mat" ? "Mat " : "Camera ") + (NAMES[e.type] || e.type).toLowerCase() : NAMES[e.type] || e.type}</span>
           <span class="when">${clock(toDate(e.time))}</span>
           ${e.type === "package_seen" ? `<span class="conf">${pct(e.conf)}</span>` : ""}
+          ${e.grams !== undefined && e.device === "porch-mat" ? `<span class="conf">${Math.round(e.grams)} g</span>` : ""}
+          ${e.reason ? `<span class="conf">${e.reason}</span>` : ""}
           ${e.photo ? `<img src="${e.photo}" loading="lazy" alt="" onerror="this.remove()">` : ""}
         </li>`).join("");
+    }
+
+    //mat and camera cards: online/offline, current weight, sensor errors
+    function showDevices(mat, devices) {
+      const ago = (t) => t ? clock(toDate(t)) : "never";
+      const status = (name) => devices.find((d) => d.time === name);
+
+      const m = status("porch-mat");
+      const matError = mat && mat.event === "sensor_error";
+      setPill("matPill", m, matError ? "Sensor error" : null);
+      $("matGrams").textContent = mat && mat.grams !== undefined ? Math.round(mat.grams) + " g" + (mat.stable ? "" : " (settling)") : "–";
+      $("matDetail").textContent = (m && m.state ? m.state + " · " : "") + "updated " + ago(mat && mat.updated);
+
+      const p = status("porch-pi") || devices.find((d) => d.time !== "porch-mat");   //the camera pi, whatever name it puts in porch/status/<name>
+      setPill("piPill", p, null);
+      $("piDetail").textContent = p ? (p.state ? p.state + " · " : "") + ago(p.updated) : "no status yet";
+    }
+
+    function setPill(id, s, error) {
+      const el = $(id);
+      const online = s && s.online;
+      el.className = "pill" + (online && !error ? "" : " bad");
+      el.innerHTML = `<span class="dot${online && !error ? "" : " off"}"></span>` + (error || (s ? (online ? "Online" : "Offline") : "Unknown"));
     }
 
     //tell the pi to turn the alarm or light off
