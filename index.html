@@ -48,6 +48,11 @@
     .controls button:disabled { opacity: .5; }
     #sent { font-size: 13px; color: var(--muted); min-height: 20px; margin: 0 0 14px; text-align: center; }
 
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th, td { padding: 9px 0; border-top: 1px solid var(--line); text-align: right; }
+    th { font-size: 12px; color: var(--muted); font-weight: 600; border-top: 0; }
+    th:first-child, td:first-child { text-align: left; }
+
     .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
     .stats .card { margin: 0; padding: 14px; }
     .stats b { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -110,6 +115,14 @@
       <div class="card"><p class="label">Motion today</p><b id="motion">0</b></div>
       <div class="card"><p class="label">Avg. sure</p><b id="avg">–</b></div>
     </div>
+
+    <section class="card">
+      <p class="label">Numbers</p>
+      <table>
+        <thead><tr><th></th><th>Today</th><th>Last 7 days</th></tr></thead>
+        <tbody id="table"></tbody>
+      </table>
+    </section>
 
     <section class="card">
       <p class="label">Recent events</p>
@@ -196,20 +209,39 @@
       //today's numbers
       const today = events.filter((e) => toDate(e.time).toDateString() === new Date().toDateString());
       const packages = events.filter((e) => e.type === "package_seen");
-      $("packages").textContent = today.filter((e) => e.type === "package_seen" || e.type === "package_placed").length;
+      //only the mat's "increase" counts as a new package. the camera sees the same package again on every motion
+      $("packages").textContent = today.filter((e) => e.type === "package_placed").length;
       $("motion").textContent = today.filter((e) => e.type === "motion_start").length;
       $("avg").textContent = packages.length ? pct(packages.reduce((s, e) => s + e.conf, 0) / packages.length) : "–";
 
-      //event list
-      $("events").innerHTML = events.map((e) => `
+      //numbers table: today and last 7 days
+      const week = events.filter((e) => Date.now() - toDate(e.time) < 7 * 24 * 3600 * 1000);
+      const count = (list, type) => list.filter((e) => e.type === type).length;
+      const rows = [
+        ["Motion detects", (l) => count(l, "motion_start")],
+        ["Packages placed (mat)", (l) => count(l, "package_placed")],
+        ["Packages taken (mat)", (l) => count(l, "package_removed")],
+        ["Camera saw a package", (l) => count(l, "package_seen")],
+        ["Camera saw no package", (l) => count(l, "no_package")],
+      ];
+      $("table").innerHTML = rows.map(([name, f]) => `<tr><td>${name}</td><td>${f(today)}</td><td>${f(week)}</td></tr>`).join("");
+
+      //event list, newest 25 (online/offline is on the device cards, not here)
+      $("events").innerHTML = events.filter((e) => !e.type.startsWith("device_")).slice(0, 25).map((e) => `
         <li class="${e.type}">
           <span class="tag">${e.source ? (e.source === "porch-mat" ? "Mat " : "Camera ") + (NAMES[e.type] || e.type).toLowerCase() : NAMES[e.type] || e.type}</span>
           <span class="when">${clock(toDate(e.time))}</span>
           ${e.type === "package_seen" ? `<span class="conf">${pct(e.conf)}</span>` : ""}
-          ${e.grams !== undefined && e.device === "porch-mat" ? `<span class="conf">${Math.round(e.grams)} g</span>` : ""}
-          ${e.reason ? `<span class="conf">${e.reason}</span>` : ""}
+          ${weight(e) ? `<span class="conf">${weight(e)}</span>` : ""}
           ${e.photo ? `<img src="${e.photo}" loading="lazy" alt="" onerror="this.remove()">` : ""}
         </li>`).join("");
+    }
+
+    //package weight next to each detect: the mat's change for placed/taken, the mat reading for a camera detect
+    function weight(e) {
+      if ((e.type === "package_placed" || e.type === "package_removed") && e.delta_g) return Math.abs(Math.round(e.delta_g)) + " g";
+      if (e.type === "package_seen" && e.mat_grams) return Math.round(e.mat_grams) + " g";
+      return "";
     }
 
     //mat and camera cards: online/offline, current weight, sensor errors
@@ -230,7 +262,8 @@
 
     function setPill(id, s, error) {
       const el = $(id);
-      const online = s && s.online;
+      //the mat checks in every 5 min and the camera every 1 min. no status for 11 min = offline
+      const online = s && s.online && Date.now() - toDate(s.updated) < 11 * 60 * 1000;
       el.className = "pill" + (online && !error ? "" : " bad");
       el.innerHTML = `<span class="dot${online && !error ? "" : " off"}"></span>` + (error || (s ? (online ? "Online" : "Offline") : "Unknown"));
     }
