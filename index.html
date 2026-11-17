@@ -66,7 +66,7 @@
     .motion_start .tag { background: var(--blue-soft); color: var(--blue); }
     .package_placed .tag { background: var(--green-soft); color: var(--green); }
     .package_removed .tag, .mat_error .tag, .device_offline .tag { background: var(--red-soft); color: var(--red); }
-    .weight_change .tag, .device_online .tag { background: var(--gray-soft); color: var(--muted); }
+    .weight_change .tag, .device_online .tag, .picked_up .tag { background: var(--gray-soft); color: var(--muted); }
     .hero.alarm { background: var(--red-soft); border-color: transparent; }
     .hero.alarm h2 { color: var(--red); }
 
@@ -138,11 +138,11 @@
 
     const NAMES = {
       package_seen: "Package", no_package: "No package", motion_start: "Motion",
-      package_placed: "Mat: placed", package_removed: "Mat: taken", weight_change: "Weight change",
+      package_placed: "Mat: placed", package_removed: "Mat: taken", picked_up: "Picked up", weight_change: "Weight change",
       mat_error: "Mat error", device_online: "Online", device_offline: "Offline",
     };
     //the events that decide the big "Right now" card (online/offline and small weight changes don't)
-    const PORCH_TYPES = ["package_seen", "no_package", "motion_start", "package_placed", "package_removed"];
+    const PORCH_TYPES = ["package_placed", "package_removed", "picked_up"];   //only the decided mat + camera results set the big card
 
     //dynamodb times are utc "2026-11-06 12:00:08"
     const toDate = (t) => new Date(t.replace(" ", "T") + "Z");
@@ -165,7 +165,7 @@
 
     function show(events) {
       const latest = events.find((e) => PORCH_TYPES.includes(e.type));
-      if (!latest) { $("status").textContent = "No events yet"; }
+      if (!latest) { $("status").textContent = "No packages yet"; }
       else showLatest(latest);
 
       renderRest(events);
@@ -188,6 +188,9 @@
       } else if (t === "package_removed") {
         $("status").textContent = "Package taken off the mat";
         $("detail").textContent = when + (latest.grams !== undefined ? " · " + Math.round(latest.grams) + " g left on the mat" : "");
+      } else if (t === "picked_up") {
+        $("status").textContent = "Package picked up";
+        $("detail").textContent = when + " · resident was home";
       } else if (t === "no_package") {
         $("status").textContent = "Porch is clear";
         $("detail").textContent = "Checked " + when;
@@ -256,7 +259,7 @@
       $("matGrams").textContent = mat && mat.grams !== undefined ? Math.round(mat.grams) + " g" + (mat.stable ? "" : " (settling)") : "–";
       $("matDetail").textContent = (m && m.state ? m.state + " · " : "") + "updated " + ago(mat && mat.updated);
 
-      const p = status("porch-pi") || devices.find((d) => d.time !== "porch-mat");   //the camera pi, whatever name it puts in porch/status/<name>
+      const p = status("porch-pi");
       setPill("piPill", p, null);
       $("piDetail").textContent = p ? (p.state ? p.state + " · " : "") + ago(p.updated) : "no status yet";
     }
