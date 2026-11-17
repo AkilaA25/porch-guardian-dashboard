@@ -183,7 +183,7 @@
       } else if (t === "package_placed") {
         $("status").textContent = "Package on the porch";
         let d = when + (latest.grams !== undefined ? " · " + Math.round(latest.grams) + " g on the mat" : "");
-        if (latest.conf !== undefined) d += latest.camera_package ? " · camera " + pct(latest.conf) + " sure" : " · camera sees no package";
+        d += " · camera " + pct(latest.conf) + " sure";
         $("detail").textContent = d;
       } else if (t === "package_removed") {
         $("status").textContent = "Package taken off the mat";
