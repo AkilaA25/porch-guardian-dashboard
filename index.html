@@ -53,9 +53,6 @@
     th { font-size: 12px; color: var(--muted); font-weight: 600; border-top: 0; }
     th:first-child, td:first-child { text-align: left; }
 
-    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
-    .stats .card { margin: 0; padding: 14px; }
-    .stats b { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
 
     ul { list-style: none; margin: 0; padding: 0; }
     li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
@@ -77,6 +74,11 @@
     .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
     .pill.bad { color: var(--red); }
     .when { flex: 1; }
+    .chart { display: flex; align-items: flex-end; gap: 2px; height: 90px; margin: 12px 0 4px; }
+    .chart div { flex: 1; background: var(--gray-soft); border-radius: 3px 3px 0 0; min-height: 2px; }
+    .chart div.best { background: var(--green); }
+    .hours { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+    #window { font-size: 20px; font-weight: 650; margin: 0; }
     .conf { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
     li img { width: 64px; aspect-ratio: 16/9; object-fit: cover; border-radius: 8px; cursor: zoom-in; }
 
@@ -105,23 +107,24 @@
     </div>
 
     <div class="controls">
+      <button onclick="send('alarm_on', this)">Alarm on</button>
       <button onclick="send('alarm_off', this)">Alarm off</button>
+      <button onclick="send('light_on', this)">Light on</button>
       <button onclick="send('light_off', this)">Light off</button>
     </div>
     <p id="sent"></p>
 
-    <div class="stats">
-      <div class="card"><p class="label">Packages today</p><b id="packages">0</b></div>
-      <div class="card"><p class="label">Motion today</p><b id="motion">0</b></div>
-      <div class="card"><p class="label">Avg. sure</p><b id="avg">–</b></div>
-    </div>
-
     <section class="card">
-      <p class="label">Numbers</p>
+      <p class="label">Stats</p>
       <table>
         <thead><tr><th></th><th>Today</th><th>Last 7 days</th></tr></thead>
         <tbody id="table"></tbody>
       </table>
+      <p class="label" style="margin-top: 18px">Delivery window</p>
+      <p id="window">–</p>
+      <p id="windowDetail" class="conf"></p>
+      <div id="chart" class="chart"></div>
+      <div class="hours"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>12 AM</span></div>
     </section>
 
     <section class="card">
@@ -169,6 +172,7 @@
       else showLatest(latest);
 
       renderRest(events);
+      showDeliveries(events);
     }
 
     //big status card
@@ -209,23 +213,18 @@
         $("photo").hidden = false;
       }
 
-      //today's numbers
       const today = events.filter((e) => toDate(e.time).toDateString() === new Date().toDateString());
-      const packages = events.filter((e) => e.type === "package_seen");
-      //only the mat's "increase" counts as a new package. the camera sees the same package again on every motion
-      $("packages").textContent = today.filter((e) => e.type === "package_placed").length;
-      $("motion").textContent = today.filter((e) => e.type === "motion_start").length;
-      $("avg").textContent = packages.length ? pct(packages.reduce((s, e) => s + e.conf, 0) / packages.length) : "–";
 
       //numbers table: today and last 7 days
       const week = events.filter((e) => Date.now() - toDate(e.time) < 7 * 24 * 3600 * 1000);
       const count = (list, type) => list.filter((e) => e.type === type).length;
       const rows = [
-        ["Motion detects", (l) => count(l, "motion_start")],
-        ["Packages placed (mat)", (l) => count(l, "package_placed")],
-        ["Packages taken (mat)", (l) => count(l, "package_removed")],
-        ["Camera saw a package", (l) => count(l, "package_seen")],
-        ["Camera saw no package", (l) => count(l, "no_package")],
+        ["Motion detected", (l) => count(l, "motion_start")],
+        ["Package deliveries", (l) => count(l, "package_placed")],
+        ["Picked up by you", (l) => count(l, "picked_up")],
+        ["Package thefts", (l) => count(l, "package_removed")],
+        ["Avg. delivery time", avgDeliveryTime],
+        ["Avg. time on porch", avgTimeOnPorch],
       ];
       $("table").innerHTML = rows.map(([name, f]) => `<tr><td>${name}</td><td>${f(today)}</td><td>${f(week)}</td></tr>`).join("");
 
@@ -238,6 +237,48 @@
           ${weight(e) ? `<span class="conf">${weight(e)}</span>` : ""}
           ${e.photo ? `<img src="${e.photo}" loading="lazy" alt="" onerror="this.remove()">` : ""}
         </li>`).join("");
+    }
+
+    //deliveries = package_placed rows (the mat went up AND the model saw a package). chart = deliveries per hour of the day, window = the 2 hours in a row with the most
+    function showDeliveries(events) {
+      const placed = events.filter((e) => e.type === "package_placed");
+      const perHour = Array(24).fill(0);
+      placed.forEach((e) => perHour[toDate(e.time).getHours()]++);
+
+      let best = 0;
+      for (let h = 1; h < 24; h++) if (perHour[h] + perHour[(h + 1) % 24] > perHour[best] + perHour[(best + 1) % 24]) best = h;
+      const inWindow = perHour[best] + perHour[(best + 1) % 24];
+      const hour = (h) => new Date(2000, 0, 1, h % 24).toLocaleTimeString([], { hour: "numeric" });
+
+      $("window").textContent = placed.length ? hour(best) + " – " + hour(best + 2) : "No deliveries yet";
+      $("windowDetail").textContent = placed.length ? `${inWindow} of ${placed.length} deliveries came in this window` : "";
+      const top = Math.max(1, ...perHour);
+      $("chart").innerHTML = perHour.map((n, h) =>
+        `<div class="${placed.length && (h === best || h === (best + 1) % 24) ? "best" : ""}" style="height:${(n / top) * 100}%" title="${hour(h)}: ${n}"></div>`).join("");
+    }
+
+    //average time of day packages were placed, in this phone's time zone
+    function avgDeliveryTime(list) {
+      const mins = list.filter((e) => e.type === "package_placed").map((e) => { const d = toDate(e.time); return d.getHours() * 60 + d.getMinutes(); });
+      if (!mins.length) return "–";
+      const m = Math.round(mins.reduce((a, b) => a + b, 0) / mins.length);
+      return new Date(2000, 0, 1, Math.floor(m / 60), m % 60).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    }
+
+    //average minutes from "placed" to the next "taken" or "picked up"
+    function avgTimeOnPorch(list) {
+      const waits = [];
+      let placed = null;
+      for (const e of [...list].reverse()) {   //oldest first
+        if (e.type === "package_placed") placed = e;
+        if ((e.type === "package_removed" || e.type === "picked_up") && placed) {
+          waits.push((toDate(e.time) - toDate(placed.time)) / 60000);
+          placed = null;
+        }
+      }
+      if (!waits.length) return "–";
+      const m = Math.round(waits.reduce((a, b) => a + b, 0) / waits.length);
+      return m < 60 ? m + " min" : Math.floor(m / 60) + " h " + (m % 60) + " min";
     }
 
     //package weight next to each detect: the mat's change for placed/taken, the mat reading for a camera detect
@@ -272,7 +313,7 @@
       el.innerHTML = `<span class="dot${online && !error ? "" : " off"}"></span>` + (error || (s ? (online ? "Online" : "Offline") : "Unknown"));
     }
 
-    //tell the pi to turn the alarm or light off
+    //tell the pi to turn the alarm or light on/off
     async function send(cmd, button) {
       button.disabled = true;
       try {
